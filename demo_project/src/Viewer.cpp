@@ -10,7 +10,7 @@
 #include "DEC.h"
 #include "arrowPoint.h"
 
-#include <Eigen/Dense>
+#include <Eigen/Dense>q
 
 using namespace MeshLib;
 using namespace Eigen;
@@ -146,6 +146,78 @@ void updateColorsPrimalForm(Matrix<double, Dynamic, Dynamic>& form, bool is0Form
     }
 }
 
+void updateColorsDualForm(Matrix<double, Dynamic, Dynamic>& form, bool is2Form) {
+
+    double maxForm = form.maxCoeff();
+    double minForm = form.minCoeff();
+
+    if (currentFormName == FormName::Dual_1 || currentFormName == FormName::Primal_1) {
+        if (maxForm <= 1e-3) mapToColor(0, minForm, maxForm, "coolwarm");
+        else {
+            list<CMyVertex*> vertices = mesh.vertices();
+            for (list<CMyVertex*>::iterator iter = vertices.begin(); iter != vertices.end(); iter++) {
+                (*iter)->rgb()[0] = (*iter)->rgb()[1] = (*iter)->rgb()[2] = 1;
+            }
+        }
+    }
+    else {
+        int k = 0;
+        for (list<CMyFace*>::iterator iter = mesh.faces().begin(); iter != mesh.faces().end(); iter++) {
+            CMyFace* f = *iter;
+
+            CMyHalfEdge* he = (CMyHalfEdge*)f->halfedge();
+            for (int i = 0; i < 3; i++) {
+
+                CMyVertex* v = (CMyVertex*)he->target();
+                CPoint color;
+                double avg1RingFormValue = 0;
+
+                if (is2Form) {
+                    double A = geometry.barycentricDualArea(v);
+                    color = mapToColor(form(v->id(), 0) / A, minForm, maxForm, "coolwarm");
+                }
+                else {
+                    int n = 0;
+                    CMyHalfEdge* he_begin = (CMyHalfEdge*)v->most_ccw_out_halfedge();
+                    CMyHalfEdge* he = (CMyHalfEdge*)he_begin->he_sym()->he_next();
+                    do
+                    {
+                        avg1RingFormValue += form(f->id() - 1, 0);
+                        he = (CMyHalfEdge*)he->he_sym()->he_next();
+                        n++;
+
+                    } while (he != he_begin);
+
+                    avg1RingFormValue /= n;
+                }
+
+                CMyHalfEdge* h = (CMyHalfEdge*)he->he_prev();
+                if (h->edge()->boundary()) {
+                    for (int i = 0; i < 6; i++) {
+                        if (!is2Form) {
+                            double formValue = form(f->id() - 1, 0);
+                            if (i == 0 || i == 3)formValue = avg1RingFormValue;
+                            else if (i == 4)formValue = form(h->he_prev()->he_sym()->face()->id() - 1, 0);
+                            else if (i == 5)formValue = form(h->he_prev()->he_sym()->face()->id() - 1, 0);
+
+                            color = mapToColor(formValue, minForm, maxForm, "coolwarm");
+                        }
+                    }
+
+                    
+                }
+
+
+
+
+                he = (CMyHalfEdge*)he->he_next();
+            }
+
+        }
+
+    }
+}
+
 void drawArrow( CPoint& point, const CPoint& direction) {
     double length = 2;
     glBegin(GL_LINES);
@@ -250,29 +322,6 @@ void updatePrimal1FormMesh() {
     primal1FormMesh.geometry.attributes.position.needsUpdate = true;*/
 }
 
-void functionD() {
-    switch (currentFormName)
-    {
-    case FormName::Primal_0:
-        currentFormName = FormName::Primal_1;
-        break;
-    case FormName::Primal_1:
-        currentFormName = FormName::Primal_2;
-        break;
-    case FormName::Primal_2:
-        break;
-    case FormName::Dual_0:
-        currentFormName = FormName::Dual_1;
-        break;
-    case FormName::Dual_1:
-        currentFormName = FormName::Dual_2;
-        break;
-    case FormName::Dual_2:
-        break;
-    default:
-        break;
-    }
-}
 
 
 
@@ -293,9 +342,85 @@ void updateFormViz() {
                 updateColorsPrimalForm(currentForm, false);
             }
         }
-
+    }
+    else {
+        if (currentFormName == FormName::Dual_1) {
+            updateColorsDualForm(currentForm, false);
+            updatePrimal1FormMesh();
+            showArrows = true;
+        }
+        else {
+            showArrows = false;
+            if (currentFormName == FormName::Dual_0) {
+                updateColorsDualForm(currentForm, false);
+            }
+            else {
+                updateColorsDualForm(currentForm, true);
+            }
+        }
     }
 }
+
+void functionD() {
+
+    Eigen::SparseMatrix<double> d;
+    cout << "begin d" << endl;
+
+    switch (currentFormName)
+    {
+    case FormName::Primal_0:
+        d = DEC<CMyMesh, CMyVertex, CMyEdge, CMyFace, CMyHalfEdge>::
+            buildExteriorDerivative0Form(&geometry, geometry.getedgeIndex(), geometry.getvertexIndex());
+        currentFormName = FormName::Primal_1;
+        break;
+    case FormName::Primal_1:
+        currentFormName = FormName::Primal_2;
+        break;
+    case FormName::Dual_0:
+        currentFormName = FormName::Dual_1;
+        break;
+    case FormName::Dual_1:
+        currentFormName = FormName::Dual_2;
+        break;
+    default:
+        break;
+    }
+
+    currentForm = d * currentForm;
+    cout << "currentForm " << currentForm.cols() << " " << currentForm.rows() << endl;
+    updateFormViz();
+    cout << "end d" << endl;
+}
+
+void functionStar() {
+
+    Eigen::SparseMatrix<double> star;
+    cout << "begin star" << endl;
+
+    switch (currentFormName)
+    {
+    case FormName::Primal_0:
+        star = DEC<CMyMesh, CMyVertex, CMyEdge, CMyFace, CMyHalfEdge>::
+            buildHodgeStar0Form(&geometry, geometry.getvertexIndex());
+        currentFormName = FormName::Dual_2;
+        break;
+    case FormName::Primal_1:
+        currentFormName = FormName::Dual_1;
+        break;
+    case FormName::Primal_2:
+        currentFormName = FormName::Dual_0;
+        break;
+    default:
+        break;
+    }
+
+
+    currentForm = star * currentForm;
+    cout << "currentForm " << currentForm.cols() << " " << currentForm.rows() << endl;
+    updateFormViz();
+    cout << "end star" << endl;
+}
+
 
 void randomize() {
     if (currentFormName == FormName::Primal_0 || currentFormName == FormName::Dual_2) {
@@ -636,7 +761,6 @@ void specialKey(GLint key, GLint x, GLint y)
 /*! Keyboard call back function */
 void keyBoard(unsigned char key, int x, int y)
 {
-    Eigen::SparseMatrix<double> sp;
     switch (key)
     {
     case '0':
@@ -648,15 +772,10 @@ void keyBoard(unsigned char key, int x, int y)
     case '2':
         showUV = !showUV;
         break;
+    case '8':
+        break;
     case 'd':
-        cout << "begin d" << endl;
-        sp = DEC<CMyMesh, CMyVertex, CMyEdge, CMyFace, CMyHalfEdge>::
-            buildExteriorDerivative0Form(&geometry, geometry.getedgeIndex(), geometry.getvertexIndex());
-        currentForm = sp * currentForm;
-        cout << "currentForm " << currentForm.cols()<<" "<< currentForm.rows() << endl;
-        currentFormName = FormName::Primal_1;
-        updateFormViz();
-        cout << "end d" << endl;
+        functionD();
         break;
     case 'f':
         //Flat Shading

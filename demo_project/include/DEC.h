@@ -14,32 +14,32 @@ public:
 	static void testFun() {
 		std::cout << "mesh " << mesh.vertices().size() << std::endl;
 	}
-	////DEC() {}
-	///**
-	// * Builds a sparse diagonal matrix encoding the Hodge operator on 0-forms.
-	// * By convention, the area of a vertex is 1.
-	// * @static
-	// * @param {module:Core.Geometry} geometry The geometry of a mesh.
-	// * @param {Object} vertexIndex A dictionary mapping each vertex of a mesh to a unique index.
-	// * @returns {module:LinearAlgebra.SparseMatrix}
-	// */
-	//static Eigen::SparseMatrix<double> buildHodgeStar0Form(Geometry<M, V, E, F, H> *geometry, std::map<int, int> vertexIndex) {
-	//	//let vertices = geometry.mesh.vertices;
-	//	int V_ = geometry->getMesh().numVertices();
-	//	std::vector<Eigen::Triplet<double>> tripletlist;
-	//	Eigen::Triplet<double>* T = new Eigen::Triplet<double>(V_, V_);
-	//	for (M::MeshVertexIterator mviter(&geometry->getMesh());!mviter.end();++mviter) {
-	//		V* v = mviter.value();
-	//		int i = vertexIndex[v->id()];
-	//		double area = geometry->barycentricDualArea(v);
+	//DEC() {}
+	/**
+	 * Builds a sparse diagonal matrix encoding the Hodge operator on 0-forms.
+	 * By convention, the area of a vertex is 1.
+	 * @static
+	 * @param {module:Core.Geometry} geometry The geometry of a mesh.
+	 * @param {Object} vertexIndex A dictionary mapping each vertex of a mesh to a unique index.
+	 * @returns {module:LinearAlgebra.SparseMatrix}
+	 */
+	static Eigen::SparseMatrix<double> buildHodgeStar0Form(Geometry<M, V, E, F, H> *geometry, std::map<int, int> vertexIndex) {
+		//let vertices = geometry.mesh.vertices;
+		int V_ = geometry->mesh->numVertices();
+		std::vector<Eigen::Triplet<double>> tripletlist;
+		Eigen::Triplet<double>* T = new Eigen::Triplet<double>(V_, V_);
+		for (M::MeshVertexIterator mviter(geometry->mesh);!mviter.end();++mviter) {
+			V* v = mviter.value();
+			int i = vertexIndex[v->id()];
+			double area = geometry->barycentricDualArea(v);
 
-	//		tripletlist.push_back(Eigen::Triplet<double>(i, i, area));
-	//	}
+			tripletlist.push_back(Eigen::Triplet<double>(i, i, area));
+		}
 
-	//	Eigen::SparseMatrix<double> sp(V_, V_);
-	//	sp.setFromTriplets(tripletlist.begin(), tripletlist.end());
-	//	return sp;
-	//}
+		Eigen::SparseMatrix<double> sp(V_, V_);
+		sp.setFromTriplets(tripletlist.begin(), tripletlist.end());
+		return sp;
+	}
 
 	///**
 	// * Builds a sparse diagonal matrix encoding the Hodge operator on 1-forms.
