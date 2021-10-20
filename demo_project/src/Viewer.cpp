@@ -10,7 +10,7 @@
 #include "DEC.h"
 #include "arrowPoint.h"
 
-#include <Eigen/Dense>q
+#include <Eigen/Dense>
 
 using namespace MeshLib;
 using namespace Eigen;
@@ -281,6 +281,36 @@ map<int, CPoint> interpolateWhitney(Matrix<double, Dynamic, Dynamic>& form) {
     return field;
 }
 
+double pointToSegmentDistance(CPoint p, CPoint a, CPoint u) {
+    double l2 = u.norm();
+    double t = max(0.0, min(1.0, ((p - a) * u) / l2));
+    CPoint v = a + (u * t);
+
+    return((p - v).norm());
+}
+
+map<int, CPoint> interpolateWachspressWhitney(Matrix<double, Dynamic, Dynamic>& form) {
+    map<int, CPoint> field;
+    for (list<CMyVertex*>::iterator iter = mesh.vertices().begin(); iter != mesh.vertices().end(); iter++) {
+        CMyVertex* v = *iter;
+
+        CPoint p = v->point();
+
+        CMyHalfEdge* he_begin = (CMyHalfEdge*)v->most_ccw_in_halfedge();
+        CMyHalfEdge* he = (CMyHalfEdge*)he_begin->he_next()->he_sym();
+        do
+        {
+
+            he = (CMyHalfEdge*)he->he_next()->he_sym();
+        } while (he != he_begin);
+
+
+
+        //field.insert(make_pair(face->id(), res));
+    }
+    return field;
+}
+
 void updatePrimal1FormMesh() {
     cout << "updatePrimal1FormMesh" << endl;
     // interpolate 1 form to a face field
@@ -291,7 +321,6 @@ void updatePrimal1FormMesh() {
     for (list<CMyFace*>::iterator iter = mesh.faces().begin(); iter != mesh.faces().end(); iter++) {
         CMyFace* face = *iter;
         
-
         CPoint N = geometry.faceNormal(face);
         map<int, CPoint>::iterator p = primal1FormField.find(face->id());
         CPoint field = (*p).second * length;
@@ -306,6 +335,47 @@ void updatePrimal1FormMesh() {
        /* cout << face->id() << " " << (*arrowMesh.find(face->id())).second.direction(0)
             << " " << (*arrowMesh.find(face->id())).second.direction(1)
             << " " << (*arrowMesh.find(face->id())).second.direction(2) << endl;*/
+    }
+
+    // update positions
+    /*let positions = primal1FormMesh.geometry.attributes.position.array;
+    for (let f of mesh.faces) {
+        let C = geometry.circumcenter(f);
+        let N = geometry.faceNormal(f);
+
+        let field = primal1FormField[f].times(length);
+        clampFieldLength(field, length);
+        setArrow(positions, f.index, C.minus(field), C.plus(field), N);
+    }
+
+    primal1FormMesh.geometry.attributes.position.needsUpdate = true;*/
+}
+
+
+void updateDual1FormMesh() {
+    cout << "updateDual1FormMesh" << endl;
+    // interpolate 1 form to a face field
+    map<int, CPoint> primal1FormField = interpolateWhitney(currentForm);
+    double length = 0.3 * geometry.meanEdgeLength();
+
+    for (list<CMyFace*>::iterator iter = mesh.faces().begin(); iter != mesh.faces().end(); iter++) {
+        CMyFace* face = *iter;
+
+
+        CPoint N = geometry.faceNormal(face);
+        map<int, CPoint>::iterator p = primal1FormField.find(face->id());
+        CPoint field = (*p).second * length;
+
+        double norm = field.norm();
+        if (norm > length) {
+            field *= length / norm;
+        }
+
+        (*arrowMesh.find(face->id())).second.direction = field;
+
+        /* cout << face->id() << " " << (*arrowMesh.find(face->id())).second.direction(0)
+             << " " << (*arrowMesh.find(face->id())).second.direction(1)
+             << " " << (*arrowMesh.find(face->id())).second.direction(2) << endl;*/
     }
 
     // update positions
@@ -346,7 +416,7 @@ void updateFormViz() {
     else {
         if (currentFormName == FormName::Dual_1) {
             updateColorsDualForm(currentForm, false);
-            updatePrimal1FormMesh();
+            updateDual1FormMesh();
             showArrows = true;
         }
         else {
@@ -1042,6 +1112,8 @@ int main(int argc, char* argv[])
     normalizeMesh(&mesh);
     computeNormal(&mesh);
     initArrowMesh();
+
+
 
     //for (map<int, ArrowPoint>::iterator iter = arrowMesh.begin(); iter != arrowMesh.end(); iter++) {
     //    pair<int, ArrowPoint> pair = (*iter);

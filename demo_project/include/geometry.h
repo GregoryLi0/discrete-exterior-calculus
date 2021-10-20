@@ -28,6 +28,34 @@ public:
 		return (p1 ^ p2 / 2).norm();
 	}
 
+	MeshLib::CPoint circumcenter(F* f) {
+		std::cout << "begin  barycentricDualArea  " << std::endl;
+		V* a = (V*)f->halfedge()->target();
+		V* b = (V*)f->halfedge()->he_next()->target();
+		V* c = (V*)f->halfedge()->he_prev()->target();
+
+		if (f->halfedge()->edge()->boundary()) {
+			return((f->halfedge()->target()->point() + f->halfedge()->source()->point()) / 2);
+		}
+		else if(f->halfedge()->he_next()->edge()->boundary()) {
+			return((f->halfedge()->he_next()->target()->point() + f->halfedge()->he_next()->source()->point()) / 2);
+		}
+		else if (f->halfedge()->he_prev()->edge()->boundary()) {
+			return((f->halfedge()->he_prev()->target()->point() + f->halfedge()->he_prev()->source()->point()) / 2);
+		}
+
+		MeshLib::CPoint ac = c->point() - a->point();
+		MeshLib::CPoint ab = b->point() - a->point();
+		MeshLib::CPoint w = ab ^ ac;
+
+		MeshLib::CPoint u = (w ^ ab) * (ac.norm());
+		MeshLib::CPoint v = (ac ^ w) * (ab.norm());
+		MeshLib::CPoint x = (u + v) / (2 * w.norm());
+
+		MeshLib::CPoint res = x + a->point();
+		return(res);
+	}
+
 	/**
 	 * Computes the barycentric dual area of a vertex.
 	 * @method module:Core.Geometry#barycentricDualArea
