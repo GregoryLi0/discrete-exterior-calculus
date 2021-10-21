@@ -111,6 +111,95 @@ Matrix<double, Dynamic, Dynamic> generateRandomFormOnVertices(bool scaleByArea =
     return form;
 }
 
+Matrix<double, Dynamic, Dynamic> generateRandomFormOnFaces(bool scaleByArea = false) {
+    int F = mesh.faces().size();
+    vector<CPoint*> c;
+    srand(time(0));
+    double perks = max(2, rand() % 10);
+
+    for (int i = 0; i < perks; i++) {
+        int t = rand() % F;
+        list<CMyFace*> faces = mesh.faces();
+        list<CMyFace*>::iterator iter = faces.begin();
+        for (int j = 0; j < t; j++) {
+            iter++;
+        }
+        CMyFace* face = *iter;
+        c.push_back(&geometry.circumcenter(face));
+    }
+
+
+    Matrix<double, Dynamic, Dynamic> form = Matrix<double, Dynamic, Dynamic>::Zero(F, 1);
+    for (list<CMyFace*>::iterator iter = mesh.faces().begin(); iter != mesh.faces().end(); iter++) {
+        CMyFace* face = *iter;
+
+        int i = face->id();
+        CPoint p = geometry.circumcenter(face);
+
+        double sum = 0;
+        for (int i = 0; i < perks; i++) {
+            sum += gaussian((*(c[i]) - p).norm(), 1.0, 0.5);
+        }
+
+        if (scaleByArea) sum *= geometry.area(face);
+        form(i - 1, 0) = sum;
+    }
+    return form;
+}
+
+Matrix<double, Dynamic, Dynamic> generateRandomFormOnEdges() {
+
+    Matrix<double, Dynamic, Dynamic> scalarPotential = generateRandomFormOnVertices();
+    Matrix<double, Dynamic, Dynamic> vectorPotential = generateRandomFormOnVertices();
+
+    map<int, CPoint> field;
+    for (list<CMyFace*>::iterator iter = mesh.faces().begin(); iter != mesh.faces().end(); iter++) {
+        CMyFace* face = *iter;
+
+        CPoint vec;
+
+        double A = geometry.area(face);
+        CPoint N = geometry.faceNormal(face);
+        CPoint C = geometry.circumcenter(face);
+
+        CMyHalfEdge* he = (CMyHalfEdge*)face->halfedge();
+        do
+        {
+            int i = he->he_next()->target()->id();
+            CPoint e = he->target()->point() - he->source()->point();
+            CPoint eT = N ^ e;
+
+            vec = vec + eT * scalarPotential(i - 1, 0) / (2 * A);
+            vec = vec + e * vectorPotential(i - 1, 0) / (2 * A);
+
+            he = (CMyHalfEdge*)he->he_next();
+        } while (he != (CMyHalfEdge*)face->halfedge());
+
+        CPoint u(C[1], 0.0, C[0]);
+        u = u - N * (u * N);
+        vec += u;
+
+        field.insert(make_pair(face->id(), vec));
+    }
+
+    Matrix<double, Dynamic, Dynamic> form = Matrix<double, Dynamic, Dynamic>::Zero(mesh.edges().size(), 1);
+
+    //  iterator for edges
+    for (list<CMyEdge*>::iterator iter = mesh.edges().begin(); iter != mesh.edges().end(); iter++) {
+        CMyEdge* edge = *iter;
+
+        int i = edge->id();
+        CMyHalfEdge* h = (CMyHalfEdge*)edge->halfedge(0);
+        CPoint f1 = (*field.find(h->face()->id())).second;
+        CPoint f2 = h->he_sym() == NULL ? CPoint() : (*field.find(h->he_sym()->face()->id())).second;
+
+        form(i - 1, 0) = (f1 + f2) * (h->target()->point() - h->source()->point());
+    }
+
+    return form;
+}
+
+
 void updateColorsPrimalForm(Matrix<double, Dynamic, Dynamic>& form, bool is0Form) {
 
     double maxForm = form.maxCoeff();
@@ -491,10 +580,15 @@ void functionStar() {
     cout << "end star" << endl;
 }
 
-
 void randomize() {
     if (currentFormName == FormName::Primal_0 || currentFormName == FormName::Dual_2) {
         currentForm = generateRandomFormOnVertices(currentFormName == FormName::Dual_2);
+    }
+    else if (currentFormName == FormName::Primal_2 || currentFormName == FormName::Dual_0) {
+        currentForm = generateRandomFormOnFaces(currentFormName == FormName::Primal_2);
+    }
+    else {
+        currentForm = generateRandomFormOnEdges();
     }
 
     updateFormViz();
@@ -866,6 +960,9 @@ void keyBoard(unsigned char key, int x, int y)
         break;
     case 'o':
         readFrameBuffer();
+        break;
+    case 'r':
+        randomize();
         break;
     case '?':
         help();

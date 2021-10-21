@@ -29,7 +29,6 @@ public:
 	}
 
 	MeshLib::CPoint circumcenter(F* f) {
-		std::cout << "begin  barycentricDualArea  " << std::endl;
 		V* a = (V*)f->halfedge()->target();
 		V* b = (V*)f->halfedge()->he_next()->target();
 		V* c = (V*)f->halfedge()->he_prev()->target();
