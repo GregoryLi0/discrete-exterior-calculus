@@ -22,7 +22,8 @@ int gButton;
 int startx, starty;
 int shadeFlag = 1;
 bool showMesh = true;
-bool showArrows = false;
+bool showEdgeArrows = false;
+bool showVertexArrows = false;
 bool showUV = false;
 bool showAxis = false;
 
@@ -33,7 +34,8 @@ CPoint      ObjTrans(0, 0, 0);
 /* global mesh */
 CMyMesh mesh;
 
-map<int, ArrowPoint> arrowMesh;
+map<int, ArrowPoint> arrowMeshFace;
+map<int, ArrowPoint> arrowMeshVertex;
 
 /* arcball object */
 CArcball arcball;
@@ -70,7 +72,14 @@ void initArrowMesh() {
         p /= 3;
 
         ArrowPoint arrowPoint(p);
-        arrowMesh.insert(make_pair(face->id(), arrowPoint));
+        arrowMeshFace.insert(make_pair(face->id(), arrowPoint));
+    }
+
+    for (list<CMyVertex*>::iterator iter = mesh.vertices().begin(); iter != mesh.vertices().end(); iter++) {
+        CMyVertex* vertex = *iter;
+
+        ArrowPoint arrowPoint(vertex->point());
+        arrowMeshVertex.insert(make_pair(vertex->id(), arrowPoint));
     }
 }
 
@@ -324,16 +333,18 @@ void drawArrow( CPoint& point, const CPoint& direction) {
     glEnd();
 }
 
-void drawArrows() {
-    for (map<int, ArrowPoint>::iterator iter = arrowMesh.begin(); iter != arrowMesh.end(); iter++) {
+void drawEdgeArrows() {
+    for (map<int, ArrowPoint>::iterator iter = arrowMeshFace.begin(); iter != arrowMeshFace.end(); iter++) {
         pair<int, ArrowPoint> p = *iter;
-
         drawArrow(p.second.point, p.second.direction);
     }
-    
-    /*for (list<CMyVertex*>::iterator iter = mesh.vertices().begin(); iter != mesh.vertices().end(); iter++) {
-        drawArrow((*iter)->point(), CPoint(1, 2, 2));
-    }*/
+}
+
+void drawVertexArrows() {
+    for (map<int, ArrowPoint>::iterator iter = arrowMeshVertex.begin(); iter != arrowMeshVertex.end(); iter++) {
+        pair<int, ArrowPoint> p = *iter;
+        drawArrow(p.second.point, p.second.direction);
+    }
 }
 
 map<int, CPoint> interpolateWhitney(Matrix<double, Dynamic, Dynamic>& form) {
@@ -378,24 +389,92 @@ double pointToSegmentDistance(CPoint p, CPoint a, CPoint u) {
     return((p - v).norm());
 }
 
-map<int, CPoint> interpolateWachspressWhitney(Matrix<double, Dynamic, Dynamic>& form) {
+map<int, CPoint> interpolateWachspressWhitney(Matrix<double, Dynamic, Dynamic>& oneform) {
+    cout << "interpolateWachspressWhitney" << endl;
     map<int, CPoint> field;
+
     for (list<CMyVertex*>::iterator iter = mesh.vertices().begin(); iter != mesh.vertices().end(); iter++) {
         CMyVertex* v = *iter;
 
         CPoint p = v->point();
+        field.insert(make_pair(v->id(), *(new CPoint())));
+
+        vector<CPoint*> C;
+        vector<double> w;
 
         CMyHalfEdge* he_begin = (CMyHalfEdge*)v->most_ccw_in_halfedge();
-        CMyHalfEdge* he = (CMyHalfEdge*)he_begin->he_next()->he_sym();
-        do
-        {
+        CMyHalfEdge* he = he_begin;
+        do {
+            CPoint f1 = geometry.circumcenter((CMyFace*)he->face());
+            CMyHalfEdge* h = (CMyHalfEdge*)he->he_sym();
+
+            if (h == NULL) {
+                CMyHalfEdge* he_p = (CMyHalfEdge*)v->most_clw_out_halfedge();
+                CPoint f2 = geometry.circumcenter((CMyFace*)he_p->face());
+                CPoint m12 = geometry.midpoint((CMyEdge*)he->edge());
+                CPoint m13 = geometry.midpoint((CMyEdge*)he_p->edge());
+
+                CPoint u = m12 - f1;
+                double height1 = pointToSegmentDistance(p, f1, u);
+
+                CPoint normal1(u(1), u(0) * -1, 0);
+
+                CPoint v = f2 - m13;
+                double height2 = pointToSegmentDistance(p, m13, v);
+                CPoint normal2(v(1), v(0) * -1, 0);
+
+                //cout << "pos1   " << (normal1 / height1)(0) << " " << (normal1 / height1)(1) << " " << (normal1 / height1)(2) << endl;
+                //cout << "pos2   " << (normal2 / height2)(0) << " " << (normal2 / height2)(1) << " " << (normal2 / height2)(2) << endl;
+                C.push_back(&(normal1 / height1));
+                C.push_back(new CPoint());
+                C.push_back(&(normal2 / height2));
+
+                double wij = oneform(he->edge()->id() - 1, 0);
+                double wjk = oneform(he_p->edge()->id() - 1, 0);
+                if (he->edge()->halfedge(0) == he) wij *= -1;
+                if (he_p->edge()->halfedge(0) != he_p) wjk *= -1;
+
+                w.push_back(wij);
+                w.push_back(0);
+                w.push_back(wjk);
+            }
+            else {
+                CPoint f2 = geometry.circumcenter((CMyFace*)h->face());
+                CPoint u = f2 - f1;
+
+
+                //cout << "pos3   " << u(0) << " " << u(1) << " " << u(2) << endl;
+                double height = pointToSegmentDistance(p, f1, u);
+                CPoint normal(u(1), u(0) * -1, 0);
+
+                //cout << "normal   " << (normal / height).norm() << endl;
+
+                C.push_back(&(normal / height));
+
+                double wij = oneform(h->edge()->id() - 1, 0);
+                cout << "wij= " << wij << endl;
+                if (h->edge()->halfedge(0) != h) {
+                    wij *= -1;
+                }
+                w.push_back(wij);
+            }
 
             he = (CMyHalfEdge*)he->he_next()->he_sym();
-        } while (he != he_begin);
+        } while (he && he != he_begin);
 
+        int n = C.size();
+        for (int j = 0; j < n; j++) {
+            int i = (j == 0) ? n - 1 : j - 1;
+            int k = (j + 1) % n;
+            map<int, CPoint>::iterator it = field.find(v->id());
+            CPoint ins = ((*C[k] - *C[i]) * w[j]);
+            cout << "insert " << ins(0) << "  " << ins(1) << endl;
+            if (it != field.end())  {
+                (*it).second += ins;
+                //cout << "add " << (*it).second.norm() << endl;
+            }
+        }
 
-
-        //field.insert(make_pair(face->id(), res));
     }
     return field;
 }
@@ -418,12 +497,11 @@ void updatePrimal1FormMesh() {
         if (norm > length) {
             field *= length / norm;
         }
-        
-        (*arrowMesh.find(face->id())).second.direction = field;
+        (*arrowMeshFace.find(face->id())).second.direction = field;
 
-       /* cout << face->id() << " " << (*arrowMesh.find(face->id())).second.direction(0)
-            << " " << (*arrowMesh.find(face->id())).second.direction(1)
-            << " " << (*arrowMesh.find(face->id())).second.direction(2) << endl;*/
+       /* cout << face->id() << " " << (*arrowMeshFace.find(face->id())).second.direction(0)
+            << " " << (*arrowMeshFace.find(face->id())).second.direction(1)
+            << " " << (*arrowMeshFace.find(face->id())).second.direction(2) << endl;*/
     }
 
     // update positions
@@ -444,27 +522,44 @@ void updatePrimal1FormMesh() {
 void updateDual1FormMesh() {
     cout << "updateDual1FormMesh" << endl;
     // interpolate 1 form to a face field
-    map<int, CPoint> primal1FormField = interpolateWhitney(currentForm);
-    double length = 0.3 * geometry.meanEdgeLength();
+    
+    map<int, CPoint> dual1FormField = interpolateWachspressWhitney(currentForm);
+    double length = geometry.meanEdgeLength();
+    cout << "length: " << length << endl;
 
-    for (list<CMyFace*>::iterator iter = mesh.faces().begin(); iter != mesh.faces().end(); iter++) {
-        CMyFace* face = *iter;
+    for (list<CMyVertex*>::iterator iter = mesh.vertices().begin(); iter != mesh.vertices().end(); iter++) {
+        CMyVertex* vertex = *iter;
 
+        if (!vertex->boundary()) {
+            CPoint p = vertex->point();
+            CPoint N = geometry.vertexNormalEquallyWeighted(vertex);
+            CPoint field = (*dual1FormField.find(vertex->id() - 1)).second * 2 * length;
+            //cout << field(0) << " " << field(1) << " " << field.norm() << endl;
+            double norm = field.norm();
+            if (norm > length) {
+                field *= length / norm;
+            }
 
-        CPoint N = geometry.faceNormal(face);
+            (*arrowMeshVertex.find(vertex->id())).second.direction = field;
+        }
+
+        /*CPoint N = geometry.faceNormal(face);
         map<int, CPoint>::iterator p = primal1FormField.find(face->id());
         CPoint field = (*p).second * length;
+
 
         double norm = field.norm();
         if (norm > length) {
             field *= length / norm;
         }
 
-        (*arrowMesh.find(face->id())).second.direction = field;
+        (*arrowMeshFace.find(face->id())).second.direction = field;*/
 
-        /* cout << face->id() << " " << (*arrowMesh.find(face->id())).second.direction(0)
-             << " " << (*arrowMesh.find(face->id())).second.direction(1)
-             << " " << (*arrowMesh.find(face->id())).second.direction(2) << endl;*/
+
+
+        /* cout << face->id() << " " << (*arrowMeshFace.find(face->id())).second.direction(0)
+             << " " << (*arrowMeshFace.find(face->id())).second.direction(1)
+             << " " << (*arrowMeshFace.find(face->id())).second.direction(2) << endl;*/
     }
 
     // update positions
@@ -491,9 +586,9 @@ void updateFormViz() {
         if (currentFormName == FormName::Primal_1) {
             updateColorsPrimalForm(currentForm, true);
             updatePrimal1FormMesh();
-            showArrows = true;
+            showEdgeArrows = true;
         } else {
-            showArrows = false;
+            showEdgeArrows = false;
             if (currentFormName == FormName::Primal_0) {
                 updateColorsPrimalForm(currentForm, true);
             }
@@ -506,10 +601,10 @@ void updateFormViz() {
         if (currentFormName == FormName::Dual_1) {
             updateColorsDualForm(currentForm, false);
             updateDual1FormMesh();
-            showArrows = true;
+            showEdgeArrows = true;
         }
         else {
-            showArrows = false;
+            showEdgeArrows = false;
             if (currentFormName == FormName::Dual_0) {
                 updateColorsDualForm(currentForm, false);
             }
@@ -523,7 +618,6 @@ void updateFormViz() {
 void functionD() {
 
     Eigen::SparseMatrix<double> d;
-    cout << "begin d" << endl;
 
     switch (currentFormName)
     {
@@ -546,15 +640,12 @@ void functionD() {
     }
 
     currentForm = d * currentForm;
-    cout << "currentForm " << currentForm.cols() << " " << currentForm.rows() << endl;
     updateFormViz();
-    cout << "end d" << endl;
 }
 
 void functionStar() {
 
     Eigen::SparseMatrix<double> star;
-    cout << "begin star" << endl;
 
     switch (currentFormName)
     {
@@ -564,6 +655,8 @@ void functionStar() {
         currentFormName = FormName::Dual_2;
         break;
     case FormName::Primal_1:
+        star = DEC<CMyMesh, CMyVertex, CMyEdge, CMyFace, CMyHalfEdge>::
+            buildHodgeStar1Form(&geometry, geometry.getedgeIndex());
         currentFormName = FormName::Dual_1;
         break;
     case FormName::Primal_2:
@@ -573,11 +666,9 @@ void functionStar() {
         break;
     }
 
-
     currentForm = star * currentForm;
     cout << "currentForm " << currentForm.cols() << " " << currentForm.rows() << endl;
     updateFormViz();
-    cout << "end star" << endl;
 }
 
 void randomize() {
@@ -853,8 +944,11 @@ void display()
     /* draw sharp edges */
     drawSharpEdges();
 
-    if(showArrows)
-        drawArrows();
+    if(currentFormName==FormName::Primal_1)
+        drawEdgeArrows();
+
+    if (currentFormName == FormName::Dual_1)
+        drawVertexArrows();
 
     /* draw the mesh */
     switch (textureFlag)
@@ -937,6 +1031,7 @@ void keyBoard(unsigned char key, int x, int y)
         showUV = !showUV;
         break;
     case '8':
+        functionStar();
         break;
     case 'd':
         functionD();
@@ -1212,7 +1307,9 @@ int main(int argc, char* argv[])
 
 
 
-    //for (map<int, ArrowPoint>::iterator iter = arrowMesh.begin(); iter != arrowMesh.end(); iter++) {
+
+
+    //for (map<int, ArrowPoint>::iterator iter = arrowMeshFace.begin(); iter != arrowMeshFace.end(); iter++) {
     //    pair<int, ArrowPoint> pair = (*iter);
     //    cout << "i" << pair.first << "  (" << pair.second.point[0] << ", " << pair.second.point[1] << ", " << pair.second.point[2] << endl;
     //}
